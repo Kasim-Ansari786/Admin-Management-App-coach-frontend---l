@@ -1,20 +1,62 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React from "react";
+import { StatusBar } from "expo-status-bar";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+
+// Import your screens
+import HomeScreen from "./src/screens/HomeScreen";
+import PlayersScreen from "./src/pages/PlayersScreen";
+import LoginScreen from "./src/screens/LoginScreen";
+import Schedule from "./src/pages/Schedule";
+import Attendance from "./src/pages/Attendance";
+import AttendanceRecords from "./src/pages/AttendanceRecords";
+
+const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
+    <NavigationContainer>
+      <Stack.Navigator initialRouteName="Login">
+        
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{ title: "Login", headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{ title: "Home" }}
+        />
+
+        <Stack.Screen
+          name="Players"
+          component={PlayersScreen}
+          options={{ title: "Players" }}
+        />
+
+        <Stack.Screen
+          name="Schedule"
+          component={Schedule}
+          options={{ title: "Schedule" }}
+        />
+
+        <Stack.Screen
+          name="Attendance"
+          component={Attendance}
+          options={{ title: "Attendance" }}
+        />
+
+        <Stack.Screen
+          name="AttendanceRecords"
+          component={AttendanceRecords}
+          options={{ title: "Attendance Records" }}
+        />
+
+      </Stack.Navigator>
+
       <StatusBar style="auto" />
-    </View>
+    </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
