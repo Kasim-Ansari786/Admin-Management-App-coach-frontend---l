@@ -15,7 +15,7 @@ import {
   ActivityIndicator
 } from "react-native";
 import { useNavigation } from '@react-navigation/native';
-
+import { loginUser, saveToken, saveUser } from "../../api";
 const { width } = Dimensions.get("window");
 
 const theme = {
@@ -44,36 +44,49 @@ const theme = {
 
 export default function LoginScreen() {
   const navigation = useNavigation();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedRole, setSelectedRole] = useState("Coach");
   const [loading, setLoading] = useState(false);
-
   const roles = [{ label: "Coach", icon: "👤" }];
 
-  // Modified Login Handler with Dummy Logic
-  const handleLogin = () => {
+
+  const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
-
     setLoading(true);
+    try {
+      const { data, error } = await loginUser({
+        email,
+        password,
+        role: selectedRole,
+      });
 
-    // Simulate a short network delay for realism
-    setTimeout(() => {
+      if (error) {
+        Alert.alert("Login Failed", error);
+        setLoading(false);
+        return;
+      }
+      if (data?.token) {
+        await saveToken(data.token);
+        console.log("✅ Token saved successfully!");
+      }
+      if (data?.user) {
+        await saveUser(data.user);
+      }
+
       setLoading(false);
-      
-      // Dummy validation logic
-      // You can change this to if(email === "admin" && password === "123") if you want specific creds
-      console.log("✅ Dummy Login successful!");
-      
-      // Navigate to Home page
-      navigation.replace("Home"); 
-    }, 1500);
+      console.log("✅ Login successful!");
+      navigation.replace("Home");
+    } catch (err) {
+      console.error("Login error:", err);
+      Alert.alert("Error", "An unexpected error occurred");
+      setLoading(false);
+    }
   };
 
   return (

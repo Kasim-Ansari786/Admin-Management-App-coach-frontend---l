@@ -1,392 +1,360 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
+  StyleSheet,
   View,
   Text,
-  StyleSheet,
-  ScrollView,
   TouchableOpacity,
+  ScrollView,
+  FlatList,
   Modal,
   TextInput,
-  Alert,
-  ActivityIndicator,
   SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from "react-native";
-import { Calendar } from "react-native-calendars";
-import { 
-  Plus, 
-  Clock, 
-  MapPin, 
-  Edit, 
-  Trash2,
-  X
+import { Picker } from "@react-native-picker/picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import Toast from "react-native-toast-message";
+import { addScheduleEvent, GetScheduleRecords, getToken, getUser } from "../../api";
+import {
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Calendar as CalendarIcon,
+  List,
+  CalendarDays,
 } from "lucide-react-native";
-// Import the Toast library
-import Toast from 'react-native-toast-message';
 
-const eventColors = {
+// --- CONFIG ---
+const eventTypeColors = {
   training: "#1A9CFF",
   match: "#10b981",
   meeting: "#f59e0b",
   tournament: "#a855f7",
-  default: "#6b7280"
 };
 
-export default function Schedule() {
-  // Default user object (no useAuth available)
-  const user = { tenant_id: 1, id: 'coach_default' };
-  const [events, setEvents] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState(null);
+const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const months = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
+export default function ScheduleApp() {
+  const [events, setEvents] = useState([]);
+  const [viewMode, setViewMode] = useState("calendar");
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [focusedInput, setFocusedInput] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(false);
+  const [user, setUser] = useState(null);
+
+  // Form State
   const [formData, setFormData] = useState({
     title: "",
     type: "training",
-    date: "",
-    time: "",
-    duration: "1h",
+    team: "Team Alpha",
+    date: new Date(),
+    time: "10:00",
     location: "",
-    team: "All Teams",
+    duration: "",
     description: "",
   });
 
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+  const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) setFormData({ ...formData, date: selectedDate });
+  };
+
   useEffect(() => {
-    fetchSchedule();
+    const loadUser = async () => {
+      try {
+        const userData = await getUser();
+        if (userData) setUser(userData);
+      } catch (error) {
+        console.error("Error loading user:", error);
+      }
+    };
+    loadUser();
   }, []);
 
   const fetchSchedule = async () => {
-    if (!user?.tenant_id) return;
+    if (!user?.tenant_id || !user?.id) return;
     try {
-      setIsLoading(true);
+      setIsLoadingSchedule(true);
       const data = await GetScheduleRecords(user.tenant_id, user.id);
       const mappedData = (Array.isArray(data) ? data : []).map((event) => ({
         ...event,
-        type: event.event_type || 'training',
+        type: event.event_type || "training",
         date: (event.event_date || "").split("T")[0],
         time: event.event_time,
+        id: event.id?.toString() || Math.random().toString(),
       }));
       setEvents(mappedData);
     } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Load Failed',
-        text2: 'Could not retrieve your schedule. 🛑'
-      });
+      console.error("❌ Error loading schedule:", error.message);
     } finally {
-      setIsLoading(false);
+      setIsLoadingSchedule(false);
     }
   };
 
-  const handleSaveEvent = async () => {
-    if (!formData.title || !formData.date || !formData.time) {
-      Toast.show({
-        type: 'error',
-        text1: 'Missing Information',
-        text2: 'Please fill in title, date, and time.'
-      });
+  useEffect(() => {
+    if (user?.tenant_id && user?.id) fetchSchedule();
+  }, [user]);
+
+  const handleAddEvent = async () => {
+    if (!formData.title) {
+      Toast.show({ type: "error", text1: "Error", text2: "Enter a title", position: "bottom" });
       return;
     }
-
+    setLoading(true);
     try {
+      const token = await getToken();
       const payload = {
-        ...formData,
+        tenant_id: user.tenant_id,
+        title: formData.title,
         event_type: formData.type,
-        event_date: formData.date,
+        event_date: formData.date.toISOString().split("T")[0],
         event_time: formData.time,
-        tenant_id: user?.tenant_id || 1,
+        duration: formData.duration,
+        location: formData.location,
+        team: formData.team,
+        description: formData.description,
       };
-
-      if (editingEvent) {
-        await updateScheduleEvent(editingEvent.id, payload);
-        Toast.show({
-          type: 'success',
-          text1: 'Event Updated',
-          text2: 'Your changes have been saved. ✅'
-        });
-      } else {
-        await addScheduleEvent(payload);
-        Toast.show({
-          type: 'success',
-          text1: 'Event Created',
-          text2: 'The new event was added to your schedule. 🎉'
-        });
+      const response = await addScheduleEvent(payload, token);
+      if (response) {
+        setEvents([{ ...payload, id: Math.random().toString(), date: payload.event_date }, ...events]);
+        setIsAddModalOpen(false);
+        setFormData({ title: "", type: "training", team: "Team Alpha", date: new Date(), time: "10:00", location: "", duration: "", description: "" });
+        Toast.show({ type: "success", text1: "Success", text2: "Event added!", position: "bottom" });
       }
-      
-      setIsModalOpen(false);
-      setEditingEvent(null);
-      fetchSchedule();
     } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Error',
-        text2: 'Failed to save event. Please try again.'
-      });
+      Toast.show({ type: "error", text1: "Failed", text2: error.message, position: "bottom" });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDelete = (event) => {
-    Alert.alert("Delete Event", `Are you sure you want to delete ${event.title}?`, [
-      { text: "Cancel", style: "cancel" },
-      { 
-        text: "Delete", 
-        style: "destructive", 
-        onPress: async () => {
-          try {
-            await deleteScheduleEvent(event.id, user?.tenant_id || 1);
-            Toast.show({
-              type: 'info',
-              text1: 'Event Deleted',
-              text2: 'The event was removed.'
-            });
-            fetchSchedule();
-          } catch (e) {
-            Toast.show({ type: 'error', text1: 'Delete failed' });
-          }
-        } 
-      },
-    ]);
+  const renderCalendar = () => {
+    const days = [];
+    for (let i = 0; i < firstDayOfMonth; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(i);
+
+    return (
+      <View style={styles.calendarGrid}>
+        {daysOfWeek.map((d) => (
+          <View key={d} style={styles.dayHeader}><Text style={styles.dayHeaderText}>{d}</Text></View>
+        ))}
+        {days.map((day, idx) => {
+          const dateString = `${year}-${(month + 1).toString().padStart(2, '0')}-${day?.toString().padStart(2, '0')}`;
+          const dayEvents = events.filter(e => e.date === dateString);
+
+          return (
+            <View key={idx} style={[styles.dayCell, !day && styles.emptyCell]}>
+              {day && (
+                <>
+                  <Text style={styles.dayNumber}>{day}</Text>
+                  <View style={styles.dotContainer}>
+                    {dayEvents.slice(0, 3).map((e, i) => (
+                      <View key={i} style={[styles.eventDot, { backgroundColor: eventTypeColors[e.type] || "#cbd5e1" }]} />
+                    ))}
+                  </View>
+                </>
+              )}
+            </View>
+          );
+        })}
+      </View>
+    );
   };
 
-  const markedDates = useMemo(() => {
-    const marks = {};
-    events.forEach(event => {
-      marks[event.date] = {
-        marked: true,
-        dotColor: eventColors[event.type] || eventColors.default
-      };
-    });
-    if (selectedDate) {
-      marks[selectedDate] = { 
-        ...marks[selectedDate], 
-        selected: true, 
-        selectedColor: '#1A9CFF' 
-      };
-    }
-    return marks;
-  }, [events, selectedDate]);
-
-  const filteredEvents = events.filter(e => e.date === selectedDate);
+  const renderItem = ({ item }) => (
+    <View style={[styles.eventCard, { borderLeftColor: eventTypeColors[item.type] }]}>
+      <View style={styles.titleRow}>
+        <Text style={styles.eventTitle}>{item.title}</Text>
+        <View style={[styles.typeBadge, { backgroundColor: eventTypeColors[item.type] }]}>
+          <Text style={styles.typeBadgeText}>{item.type}</Text>
+        </View>
+      </View>
+      <View style={styles.metaRow}>
+        <Clock size={12} color="#64748b" />
+        <Text style={styles.metaText}>{item.date} at {item.time}</Text>
+      </View>
+      {item.location && <View style={styles.metaRow}><Text style={styles.metaIcon}>📍</Text><Text style={styles.metaText}>{item.location}</Text></View>}
+      {item.team && <View style={styles.metaRow}><Text style={styles.metaIcon}>👥</Text><Text style={styles.metaText}>{item.team}</Text></View>}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Schedule</Text>
-            <Text style={styles.subtitle}>Manage training and matches</Text>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.headerTitle}>Schedule</Text>
+          <Text style={styles.headerSub}>Manage sessions</Text>
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={() => setIsAddModalOpen(true)}>
+          <Plus color="#fff" size={18} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.toggleContainer}>
+        <TouchableOpacity style={[styles.toggleBtn, viewMode === "calendar" && styles.toggleBtnActive]} onPress={() => setViewMode("calendar")}>
+          <CalendarIcon size={14} color={viewMode === "calendar" ? "#fff" : "#64748b"} />
+          <Text style={[styles.toggleText, viewMode === "calendar" && styles.toggleTextActive]}>Calendar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.toggleBtn, viewMode === "list" && styles.toggleBtnActive]} onPress={() => setViewMode("list")}>
+          <List size={14} color={viewMode === "list" ? "#fff" : "#64748b"} />
+          <Text style={[styles.toggleText, viewMode === "list" && styles.toggleTextActive]}>List</Text>
+        </TouchableOpacity>
+      </View>
+
+      {viewMode === "calendar" ? (
+        <ScrollView>
+          <View style={styles.monthPicker}>
+            <TouchableOpacity onPress={prevMonth}><ChevronLeft size={20} color="#1e293b" /></TouchableOpacity>
+            <Text style={styles.monthTitle}>{months[month]} {year}</Text>
+            <TouchableOpacity onPress={nextMonth}><ChevronRight size={20} color="#1e293b" /></TouchableOpacity>
           </View>
-          <TouchableOpacity 
-            style={styles.addButton}
-            onPress={() => {
-              setEditingEvent(null);
-              setFormData({ 
-                title: "", 
-                type: "training", 
-                date: selectedDate, 
-                time: "", 
-                duration: "1h", 
-                location: "" 
-              });
-              setIsModalOpen(true);
-            }}
-          >
-            <Plus color="#fff" size={20} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Calendar View */}
-        <View style={styles.calendarCard}>
-          <Calendar
-            onDayPress={(day) => setSelectedDate(day.dateString)}
-            markedDates={markedDates}
-            theme={{
-              todayTextColor: '#1A9CFF',
-              arrowColor: '#1A9CFF',
-              indicatorColor: '#1A9CFF',
-              selectedDayBackgroundColor: '#1A9CFF',
-            }}
-          />
-        </View>
-
-        {/* Events List */}
-        <View style={styles.eventListHeader}>
-          <Text style={styles.sectionTitle}>Events for {selectedDate}</Text>
-        </View>
-
-        {isLoading ? (
-          <ActivityIndicator color="#1A9CFF" style={{ marginTop: 20 }} />
-        ) : filteredEvents.length > 0 ? (
-          filteredEvents.map((event) => (
-            <View key={event.id} style={[styles.eventCard, { borderLeftColor: eventColors[event.type] }]}>
-              <View style={styles.eventInfo}>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <View style={styles.metaRow}>
-                  <Clock size={12} color="#666" />
-                  <Text style={styles.metaText}>{event.time} ({event.duration})</Text>
-                </View>
-                <View style={styles.metaRow}>
-                  <MapPin size={12} color="#666" />
-                  <Text style={styles.metaText}>{event.location}</Text>
-                </View>
-              </View>
-              <View style={styles.actionButtons}>
-                <TouchableOpacity onPress={() => {
-                  setEditingEvent(event);
-                  setFormData(event);
-                  setIsModalOpen(true);
-                }}>
-                  <Edit size={20} color="#1A9CFF" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(event)} style={{ marginLeft: 15 }}>
-                  <Trash2 size={20} color="#ef4444" />
-                </TouchableOpacity>
-              </View>
+          {isLoadingSchedule ? <ActivityIndicator size="small" color="#1A9CFF" /> : renderCalendar()}
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={events}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <CalendarDays size={48} color="#cbd5e1" />
+              <Text style={styles.emptyText}>No events scheduled</Text>
             </View>
-          ))
-        ) : (
-          <Text style={styles.emptyText}>No events scheduled for this day.</Text>
-        )}
-      </ScrollView>
+          }
+        />
+      )}
 
-      {/* Modal */}
-      <Modal visible={isModalOpen} animationType="slide">
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{editingEvent ? "Edit Event" : "Add Event"}</Text>
-            <TouchableOpacity onPress={() => setIsModalOpen(false)}>
-              <X color="#000" size={24} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalForm}>
-            <Text style={styles.label}>Event Title *</Text>
-            <TextInput 
-              style={styles.input} 
-              placeholder="e.g., Morning Practice" 
-              value={formData.title} 
-              onChangeText={(val) => setFormData({...formData, title: val})}
-            />
-
-            <Text style={styles.label}>Date (YYYY-MM-DD) *</Text>
-            <TextInput 
-              style={styles.input} 
-              placeholder="2024-10-25" 
-              value={formData.date} 
-              onChangeText={(val) => setFormData({...formData, date: val})}
-            />
-
-            <View style={styles.row}>
-              <View style={{ flex: 1, marginRight: 10 }}>
-                <Text style={styles.label}>Time *</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="14:00" 
-                  value={formData.time} 
-                  onChangeText={(val) => setFormData({...formData, time: val})}
-                />
+      {/* MODAL */}
+      <Modal visible={isAddModalOpen} animationType="slide" transparent={true}>
+        <View style={styles.overlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.title}>New Event</Text>
+                <TouchableOpacity onPress={() => setIsAddModalOpen(false)}><Text style={styles.closeIcon}>✕</Text></TouchableOpacity>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.label}>Duration</Text>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="1h" 
-                  value={formData.duration} 
-                  onChangeText={(val) => setFormData({...formData, duration: val})}
-                />
-              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={styles.label}>Event Title *</Text>
+                <TextInput style={[styles.stylishInput, focusedInput === "title" && styles.inputFocused]} onFocus={() => setFocusedInput("title")} onBlur={() => setFocusedInput(null)} placeholder="Enter title" value={formData.title} onChangeText={(txt) => setFormData({ ...formData, title: txt })} />
+                
+                <View style={styles.row}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.label}>Type *</Text>
+                    <View style={styles.pickerWrapper}>
+                      <Picker selectedValue={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v })} style={styles.picker}>
+                        <Picker.Item label="Training" value="training" style={{ fontSize: 11 }} />
+                        <Picker.Item label="Match" value="match" style={{ fontSize: 11 }} />
+                        <Picker.Item label="Meeting" value="meeting" style={{ fontSize: 11 }} />
+                      </Picker>
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Team</Text>
+                    <View style={styles.pickerWrapper}>
+                      <Picker selectedValue={formData.team} onValueChange={(v) => setFormData({ ...formData, team: v })} style={styles.picker}>
+                        <Picker.Item label="Team Alpha" value="Team Alpha" style={{ fontSize: 11 }} />
+                        <Picker.Item label="Team Beta" value="Team Beta" style={{ fontSize: 11 }} />
+                      </Picker>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Date *</Text>
+                <TouchableOpacity style={styles.stylishInput} onPress={() => setShowDatePicker(true)}>
+                  <Text style={{ fontSize: 11 }}>{formData.date.toLocaleDateString()}</Text>
+                  <CalendarIcon size={14} color="#1A9CFF" />
+                </TouchableOpacity>
+
+                {showDatePicker && <DateTimePicker value={formData.date} mode="date" display="default" onChange={onDateChange} />}
+
+                <View style={styles.row}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.label}>Time</Text>
+                    <TextInput style={styles.stylishInput} placeholder="10:00 AM" value={formData.time} onChangeText={(txt) => setFormData({ ...formData, time: txt })} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Duration</Text>
+                    <TextInput style={styles.stylishInput} placeholder="2h" value={formData.duration} onChangeText={(txt) => setFormData({ ...formData, duration: txt })} />
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Location</Text>
+                <TextInput style={styles.stylishInput} placeholder="Location" value={formData.location} onChangeText={(txt) => setFormData({ ...formData, location: txt })} />
+
+                <TouchableOpacity style={styles.primaryAddBtn} onPress={handleAddEvent}>
+                  {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.addBtnText}>Create Event</Text>}
+                </TouchableOpacity>
+              </ScrollView>
             </View>
-
-            <Text style={styles.label}>Location</Text>
-            <TextInput 
-              style={styles.input} 
-              placeholder="Main Stadium" 
-              value={formData.location} 
-              onChangeText={(val) => setFormData({...formData, location: val})}
-            />
-
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveEvent}>
-              <Text style={styles.saveButtonText}>Save Event</Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </SafeAreaView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
-
-      {/* RENDER THE TOAST COMPONENT AT THE BOTTOM OF THE HIERARCHY */}
       <Toast />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f8f9fa" },
-  scrollContent: { padding: 20 },
-  header: { 
-    flexDirection: "row", 
-    justifyContent: "space-between", 
-    alignItems: "center", 
-    marginBottom: 20 
-  },
-  title: { fontSize: 28, fontWeight: "bold", color: "#111" },
-  subtitle: { color: "#666", marginTop: 4 },
-  addButton: { 
-    backgroundColor: "#1A9CFF", 
-    padding: 12, 
-    borderRadius: 12,
-  },
-  calendarCard: { 
-    backgroundColor: "#fff", 
-    borderRadius: 16, 
-    overflow: "hidden", 
-    elevation: 3, 
-    marginBottom: 20 
-  },
-  sectionTitle: { fontSize: 18, fontWeight: "600", color: "#333" },
-  eventListHeader: { marginBottom: 15 },
-  eventCard: {
-    backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    borderLeftWidth: 5,
-    elevation: 2
-  },
-  eventInfo: { flex: 1 },
-  eventTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 4 },
-  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 2 },
-  metaText: { fontSize: 13, color: "#666", marginLeft: 6 },
-  actionButtons: { flexDirection: "row", alignItems: "center" },
-  emptyText: { textAlign: "center", color: "#999", marginTop: 20 },
-  modalContainer: { flex: 1, backgroundColor: "#fff" },
-  modalHeader: { 
-    flexDirection: "row", 
-    justifyContent: "space-between", 
-    padding: 20, 
-    borderBottomWidth: 1, 
-    borderColor: "#eee" 
-  },
-  modalTitle: { fontSize: 20, fontWeight: "bold" },
-  modalForm: { padding: 20 },
-  label: { fontSize: 14, fontWeight: "600", color: "#444", marginBottom: 8, marginTop: 15 },
-  input: { 
-    borderWidth: 1, 
-    borderColor: "#ddd", 
-    borderRadius: 8, 
-    padding: 12, 
-    fontSize: 16,
-    backgroundColor: "#fdfdfd"
-  },
+  container: { flex: 1, backgroundColor: "#f8fafc" },
+  header: { flexDirection: "row", justifyContent: "space-between", padding: 20, alignItems: "center" },
+  headerTitle: { fontSize: 18, fontWeight: "bold", color: "#1e293b" },
+  headerSub: { color: "#64748b", fontSize: 11 },
+  addButton: { backgroundColor: "#1A9CFF", padding: 10, borderRadius: 12 },
+  toggleContainer: { flexDirection: "row", backgroundColor: "#e2e8f0", marginHorizontal: 20, borderRadius: 25, padding: 4, marginBottom: 10 },
+  toggleBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderRadius: 20, gap: 6 },
+  toggleBtnActive: { backgroundColor: "#1A9CFF" },
+  toggleText: { color: "#64748b", fontWeight: "600", fontSize: 11 },
+  toggleTextActive: { color: "#fff" },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 10 },
+  dayHeader: { width: "14.28%", alignItems: "center", paddingBottom: 10 },
+  dayHeaderText: { color: "#94a3b8", fontWeight: "bold", fontSize: 10 },
+  dayCell: { width: "14.28%", height: 60, borderWidth: 0.5, borderColor: "#e2e8f0", padding: 4, backgroundColor: "#fff" },
+  dayNumber: { fontSize: 10, fontWeight: "600" },
+  emptyCell: { backgroundColor: "#f1f5f9" },
+  dotContainer: { flexDirection: "row", marginTop: 4, flexWrap: "wrap", gap: 2 },
+  eventDot: { width: 4, height: 4, borderRadius: 2 },
+  monthPicker: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 15 },
+  monthTitle: { fontSize: 14, fontWeight: "700" },
+  listContent: { paddingHorizontal: 20, paddingBottom: 100 },
+  eventCard: { backgroundColor: "#fff", padding: 12, marginBottom: 10, borderRadius: 12, borderLeftWidth: 4, elevation: 2 },
+  titleRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  eventTitle: { fontSize: 13, fontWeight: "bold", color: "#1e293b", flex: 1 },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  typeBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
+  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+  metaText: { color: "#64748b", fontSize: 11, marginLeft: 5 },
+  metaIcon: { fontSize: 11 },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 20 },
+  modalContainer: { width: "100%" },
+  modalContent: { backgroundColor: "#fff", borderRadius: 20, padding: 20, maxHeight: "90%" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 10 },
+  title: { fontSize: 16, fontWeight: "bold" },
+  label: { fontSize: 11, fontWeight: "700", color: "#64748b", marginBottom: 4, marginTop: 10 },
+  stylishInput: { backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 10, paddingHorizontal: 12, height: 40, fontSize: 11, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  pickerWrapper: { backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 10, overflow: "hidden" },
+  picker: { height: 40, width: "100%" },
   row: { flexDirection: "row" },
-  saveButton: { 
-    backgroundColor: "#1A9CFF", 
-    padding: 16, 
-    borderRadius: 12, 
-    alignItems: "center", 
-    marginTop: 30,
-    marginBottom: 50
-  },
-  saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" }
+  primaryAddBtn: { backgroundColor: "#1A9CFF", borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 20 },
+  addBtnText: { color: "#fff", fontWeight: "bold", fontSize: 11 },
+  emptyContainer: { alignItems: "center", marginTop: 50 },
+  emptyText: { color: "#94a3b8", fontSize: 11, marginTop: 10 },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,20 +7,72 @@ import {
   FlatList,
   Switch,
   SafeAreaView,
-  Dimensions
+  ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Users } from 'lucide-react-native';
-import Toast from 'react-native-toast-message'; // 1. Import Toast
-
-const { width } = Dimensions.get('window');
+import Toast from 'react-native-toast-message';
+import { fetchCoachAssignedPlayers, getToken, getUser, recordAttendance } from '../../api';
 
 const AttendancePage = () => {
-  const [selectedDate, setSelectedDate] = useState('2026-01-23');
-  const [players, setPlayers] = useState([
-    { id: '1', name: 'Sagar', present: true },
-    { id: '2', name: 'Sagar Patil', present: true },
-  ]);
+  // Helper to get current date in YYYY-MM-DD format
+  const getTodayDateString = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getTodayDateString());
+  const [players, setPlayers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const userData = await getUser();
+        if (userData) {
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error('Error loading user:', error);
+      }
+    };
+    loadUser();
+  }, []);
+
+  useEffect(() => {
+    if (user?.id) {
+      loadPlayers();
+    }
+  }, [user]);
+
+  const loadPlayers = async () => {
+    try {
+      setLoading(true);
+      const token = await getToken();
+      if (!token) {
+        Toast.show({ type: 'error', text1: 'Error', text2: 'No auth token found' });
+        return;
+      }
+
+      const playersData = await fetchCoachAssignedPlayers(token);
+      const initializedPlayers = playersData.map(player => ({
+        ...player,
+        present: false,
+      }));
+      
+      setPlayers(initializedPlayers);
+    } catch (error) {
+      Toast.show({ type: 'error', text1: 'Error', text2: 'Failed to load players' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const toggleAttendance = (id) => {
     setPlayers(prev => prev.map(p => 
@@ -28,34 +80,58 @@ const AttendancePage = () => {
     ));
   };
 
-  // 2. Logic for Toast Popups
-  const handleSubmit = () => {
-    const presentCount = players.filter(p => p.present).length;
+  const handleSubmit = async () => {
+    // 1. RE-FETCH ACTUAL DATE: Ensure we use "now" for the database entry
+    const actualToday = getTodayDateString();
+    
+    const presentPlayers = players.filter(p => p.present);
 
-    if (presentCount === 0) {
+    if (presentPlayers.length === 0) {
       Toast.show({
         type: 'error',
-        text1: 'Submission Failed',
-        text2: 'Please mark at least one player as present. ❌',
-        position: 'top',
+        text1: 'Error',
+        text2: 'Please mark at least one player present. ❌',
       });
-    } else {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const token = await getToken();
+      let successCount = 0;
+
+      for (const player of presentPlayers) {
+        const attendanceData = {
+          playerId: player.id,
+          attendanceDate: actualToday, // FIXED: Always uses current system date
+          isPresent: true,
+          coachId: user.id,
+        };
+
+        await recordAttendance(attendanceData, token);
+        successCount++;
+      }
+
       Toast.show({
         type: 'success',
         text1: 'Success!',
-        text2: `Attendance for ${presentCount} players saved for ${selectedDate} ✅`,
-        position: 'top',
-        visibilityTime: 4000,
+        text2: `Attendance saved for today (${actualToday}) ✅`,
       });
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Submission Failed',
+        text2: error.message,
+      });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const renderPlayer = ({ item }) => (
     <View style={styles.playerRow}>
       <View style={styles.playerInfo}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{item.name[0]}</Text>
-        </View>
+        <View style={styles.avatar}><Text style={styles.avatarText}>{item.name[0]}</Text></View>
         <Text style={styles.playerName}>{item.name}</Text>
       </View>
       <View style={styles.statusContainer}>
@@ -66,7 +142,7 @@ const AttendancePage = () => {
           value={item.present}
           onValueChange={() => toggleAttendance(item.id)}
           trackColor={{ false: '#cbd5e1', true: '#3b82f6' }}
-          thumbColor="#fff"
+          thumbColor={item.present ? '#fff' : '#999'}
         />
       </View>
     </View>
@@ -75,151 +151,73 @@ const AttendancePage = () => {
   return (
     <>
       <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          
-          {/* Attendance Card */}
+        <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.card}>
             <View style={styles.headerRow}>
-              <Users size={20} color="#000" />
-              <Text style={styles.cardTitle}>Mark Attendance</Text>
+              <Users size={18} color="#000" />
+              <Text style={styles.cardTitle}>Daily Attendance</Text>
             </View>
-            <Text style={styles.subTitle}>Mark player's attendance for: {selectedDate}</Text>
+            <Text style={styles.subTitle}>Marking for today: {getTodayDateString()}</Text>
             
-            <View style={styles.listContainer}>
+            {loading ? (
+              <ActivityIndicator size="large" color="#3b82f6" />
+            ) : (
               <FlatList
                 data={players}
                 renderItem={renderPlayer}
-                keyExtractor={item => item.id}
-                showsVerticalScrollIndicator={true}
+                keyExtractor={item => item.id.toString()}
+                scrollEnabled={false}
               />
-            </View>
+            )}
 
             <TouchableOpacity 
-                style={styles.submitButton} 
-                onPress={handleSubmit} // 3. Link the function
+              style={[styles.submitButton, submitting && styles.disabledButton]} 
+              onPress={handleSubmit}
+              disabled={submitting}
             >
-              <Text style={styles.submitText}>Submit Attendance</Text>
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.submitText}>Submit Attendance for Today</Text>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* Calendar Card */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Calendar</Text>
-            <Text style={styles.subTitle}>Select date to view/mark attendance</Text>
-            
+            <Text style={styles.cardTitle}>History View</Text>
             <Calendar
-              current={selectedDate}
+              current={getTodayDateString()}
               onDayPress={day => setSelectedDate(day.dateString)}
               markedDates={{
                 [selectedDate]: { selected: true, selectedColor: '#3b82f6' }
               }}
-              theme={{
-                todayTextColor: '#3b82f6',
-                arrowColor: '#3b82f6',
-              }}
+              maxDate={getTodayDateString()} // Prevent selecting future dates
             />
           </View>
-        </View>
+        </ScrollView>
       </SafeAreaView>
-      
-      {/* 4. MUST INCLUDE Toast component at the end of the JSX */}
       <Toast />
     </>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  content: {
-    padding: 16,
-    gap: 20,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0f172a',
-  },
-  subTitle: {
-    fontSize: 13,
-    color: '#64748b',
-    marginBottom: 16,
-  },
-  listContainer: {
-    maxHeight: 200,
-    marginBottom: 16,
-  },
-  playerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f1f5f9',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  playerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#3b82f6',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#fff',
-    fontWeight: 'bold',
-  },
-  playerName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#334155',
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  submitButton: {
-    backgroundColor: '#3b82f6',
-    padding: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  submitText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  scrollContent: { padding: 16 },
+  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, elevation: 2 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  cardTitle: { fontSize: 16, fontWeight: '700', marginLeft: 8 },
+  subTitle: { fontSize: 13, color: '#64748b', marginBottom: 16 },
+  playerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f1f5f9', padding: 10, borderRadius: 8, marginBottom: 8 },
+  playerInfo: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#3b82f6', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  avatarText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+  playerName: { fontSize: 14, fontWeight: '500' },
+  statusContainer: { flexDirection: 'row', alignItems: 'center' },
+  statusText: { fontSize: 13, fontWeight: '500', marginRight: 8 },
+  submitButton: { backgroundColor: '#3b82f6', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+  disabledButton: { backgroundColor: '#94a3b8' },
+  submitText: { color: '#fff', fontWeight: 'bold' },
 });
 
 export default AttendancePage;

@@ -10,6 +10,7 @@ import {
   SafeAreaView,
   Dimensions,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import {
   Home,
@@ -21,45 +22,96 @@ import {
   Bell,
   ChevronRight,
 } from "lucide-react-native";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
+import { getUser, getToken, fetchCoachAssignedPlayers, fetchSessionData, clearToken, clearUser } from "../../api";
 
 const { width } = Dimensions.get("window");
 
 /* ---------------- HOME CONTENT ---------------- */
 const HomeContent = () => {
   const navigation = useNavigation();
+  const [user, setUser] = useState(null);
+  const [playersCount, setPlayersCount] = useState(0);
+  const [sessionData, setSessionData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [todayDate, setTodayDate] = useState("");
 
-  // Show "Login Successful" when the page opens
+  // Get today's date formatted
   useEffect(() => {
-    Toast.show({
-      type: "success",
-      text1: "Login Successful",
-      text2: "Welcome back to your dashboard! 👋",
-      position: "top",
-      visibilityTime: 4000,
-    });
+    const today = new Date();
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const formattedDate = today.toLocaleDateString('en-US', options);
+    setTodayDate(formattedDate);
   }, []);
 
-  const handleLogout = () => {
-    Toast.show({
-      type: "info",
-      text1: "Signed Out",
-      text2: "You have been logged out successfully.",
-    });
-    
-    // Reset navigation to Login screen
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Login" }],
-    });
+  // Load user, session, and players data
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const userData = await getUser();
+        if (userData) {
+          setUser(userData);
+          console.log('✅ User loaded:', userData);
+
+          const token = await getToken();
+          if (token && userData.id) {
+            const sessions = await fetchSessionData(userData.id, token);
+            if (sessions && sessions.length > 0) {
+              setSessionData(sessions[0]); 
+              console.log('✅ Session data loaded:', sessions[0]);
+            }
+            const playersData = await fetchCoachAssignedPlayers(token);
+            setPlayersCount(playersData.length);
+            console.log('✅ Players count:', playersData.length);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (user?.name) {
+      Toast.show({
+        type: "success",
+        text1: "Login Successful",
+        text2: `Welcome back, ${user.name}! 👋`,
+        position: "top",
+        visibilityTime: 4000,
+      });
+    }
+  }, [user]);
+
+  const handleLogout = async () => {
+    try {
+      await clearToken();
+      await clearUser();      
+      Toast.show({
+        type: "info",
+        text1: "Signed Out",
+        text2: "You have been logged out successfully.",
+      });
+      
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   const handleNotificationPress = () => {
     Toast.show({
       type: "error",
       text1: "No New Notifications",
-      text2: "Check back later for team updates.",
+      text2: "Check back later for updates.",
     });
   };
 
@@ -71,11 +123,10 @@ const HomeContent = () => {
       {/* HEADER */}
       <View style={styles.headerContainer}>
         <View style={styles.headerTopRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.canGoBack() && navigation.goBack()}
-          >
-          </TouchableOpacity>
+          <View>
+            <Text style={styles.greeting}>Hello, {user?.name || 'Coach'}</Text>
+            <Text style={styles.subtitle}>{todayDate}</Text>
+          </View>
 
           <View style={styles.headerRightActions}>
             <TouchableOpacity
@@ -93,11 +144,6 @@ const HomeContent = () => {
             </TouchableOpacity>
           </View>
         </View>
-
-        <View style={styles.titleSection}>
-          <Text style={styles.greeting}>Team Dashboard</Text>
-          <Text style={styles.subtitle}>Friday, January 23</Text>
-        </View>
       </View>
 
       {/* FEATURED CARD */}
@@ -111,18 +157,25 @@ const HomeContent = () => {
         </TouchableOpacity>
       </View>
 
-      {/* OVERVIEW */}
-      <Text style={styles.sectionTitle}>Overview</Text>
-      <View style={styles.gridContainer}>
-        <View style={styles.gridItem}>
-          <Text style={styles.gridNumber}>24</Text>
-          <Text style={styles.gridLabel}>Players</Text>
+      {/* OVERVIEW SECTION */}
+      <Text style={styles.sectionTitle}>Team Overview</Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1A9CFF" />
+          <Text style={styles.loadingText}>Loading team data...</Text>
         </View>
-        <View style={styles.gridItem}>
-          <Text style={styles.gridNumber}>92%</Text>
-          <Text style={styles.gridLabel}>Attendance</Text>
+      ) : (
+        <View style={styles.gridContainer}>
+          <View style={styles.gridItem}>
+            <Text style={styles.gridNumber}>{playersCount}</Text>
+            <Text style={styles.gridLabel}>Total Players</Text>
+          </View>
+          <View style={styles.gridItem}>
+            <Text style={styles.gridNumber}>92%</Text>
+            <Text style={styles.gridLabel}>Avg Attendance</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* RECORDS */}
       <Text style={styles.sectionTitle}>Recent Records</Text>
@@ -164,7 +217,6 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* BOTTOM TAB BAR */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={styles.tabItem}
@@ -236,48 +288,39 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   headerContainer: {
-    marginBottom: 20,
+    marginBottom: 25,
   },
   headerTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
   headerRightActions: {
     flexDirection: "row",
     alignItems: "center",
   },
-  titleSection: {
-    marginTop: 15,
-  },
-  backButton: {
-    padding: 5,
-    marginLeft: -10,
-  },
   greeting: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "800",
     color: "#111827",
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 14,
     color: "#6b7280",
-    marginTop: 4,
+    marginTop: 2,
   },
   iconButton: {
     backgroundColor: "#fff",
     padding: 10,
     borderRadius: 14,
-    // Shadow for iOS
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
-    // Elevation for Android
     elevation: 3,
   },
   logoutButton: {
-    backgroundColor: "#fff", // Keep white or change to "#fff1f1" for a red tint
+    backgroundColor: "#fff",
   },
   featuredCard: {
     backgroundColor: "#1A9CFF",
@@ -294,12 +337,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   cardStats: {
-    color: "#c7d2fe",
+    color: "#e0f2fe",
     marginTop: 5,
+    fontSize: 13,
   },
   cardButton: {
     backgroundColor: "#fff",
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 12,
   },
@@ -311,6 +355,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "700",
+    color: "#111827",
     marginBottom: 15,
   },
   gridContainer: {
@@ -338,6 +383,8 @@ const styles = StyleSheet.create({
   gridLabel: {
     color: "#6b7280",
     marginTop: 5,
+    fontSize: 11, // Set to 11 as requested
+    fontWeight: "500",
   },
   listItem: {
     backgroundColor: "#fff",
@@ -360,9 +407,10 @@ const styles = StyleSheet.create({
   listTitle: {
     fontWeight: "600",
     color: "#1f2937",
+    fontSize: 15,
   },
   listSub: {
-    fontSize: 12,
+    fontSize: 11, // Set to 11 as requested
     color: "#9ca3af",
   },
   tabBar: {
@@ -372,7 +420,7 @@ const styles = StyleSheet.create({
     borderTopColor: "#f3f4f6",
     paddingBottom: Platform.OS === "ios" ? 25 : 15,
     paddingTop: 12,
-    height: Platform.OS === "ios" ? 90 : 70,
+    height: Platform.OS === "ios" ? 95 : 75,
   },
   tabItem: {
     flex: 1,
@@ -393,5 +441,16 @@ const styles = StyleSheet.create({
   placeholderText: {
     color: "#9ca3af",
     fontSize: 16,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#64748b",
+    fontWeight: "500",
   },
 });

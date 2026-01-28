@@ -3,12 +3,12 @@ import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-// Import your screens
+// 1. Double-check your folder names: 'screens' vs 'pages'
+import LoginScreen from "./src/screens/LoginScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import PlayersScreen from "./src/pages/PlayersScreen";
-import LoginScreen from "./src/screens/LoginScreen";
 import Schedule from "./src/pages/Schedule";
-import Attendance from "./src/pages/Attendance";
+import Attendance from "./src/pages/Attendance" // Ensure the file is actually Attendance.js
 import AttendanceRecords from "./src/pages/AttendanceRecords";
 
 const Stack = createNativeStackNavigator();
