@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useNavigation } from '@react-navigation/native';
 import { loginUser, saveToken, saveUser } from "../../api";
+
 const { width } = Dimensions.get("window");
 
 const theme = {
@@ -48,50 +49,52 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedRole, setSelectedRole] = useState("Coach");
+  
+  // Changed selectedRole to store the object for better data handling
+  const roles = [
+    { label: "Coach", value: "coach", icon: "👤" },
+    { label: "Teacher", value: "teacher", icon: "🎓" }
+  ];
+  
+  const [selectedRole, setSelectedRole] = useState(roles[0]);
   const [loading, setLoading] = useState(false);
-  const roles = [{ label: "Coach", icon: "👤" }];
-
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please fill in all fields");
+    // Validation
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Error", "Please enter both email and password");
       return;
     }
+
     setLoading(true);
     try {
+      // Sending selectedRole.value (lowercase) to the backend
       const { data, error } = await loginUser({
-        email,
-        password,
-        role: selectedRole,
+        email: email.trim().toLowerCase(),
+        password: password,
+        role: selectedRole.value, 
       });
 
       if (error) {
-        Alert.alert("Login Failed", error);
+        Alert.alert("Login Failed", error || "Invalid credentials for this role");
         setLoading(false);
         return;
       }
-      if (data?.token) {
-        await saveToken(data.token);
-        console.log("✅ Token saved successfully!");
-      }
-      if (data?.user) {
-        await saveUser(data.user);
-      }
+
+      if (data?.token) await saveToken(data.token);
+      if (data?.user) await saveUser(data.user);
 
       setLoading(false);
-      console.log("✅ Login successful!");
       navigation.replace("Home");
     } catch (err) {
-      console.error("Login error:", err);
-      Alert.alert("Error", "An unexpected error occurred");
+      Alert.alert("Error", "Unable to connect to server. Please check your internet.");
       setLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" backgroundColor={theme.colors.background} />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
@@ -101,41 +104,32 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Top Branding */}
+          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.appTitle}>Admin Management System</Text>
-            <Text style={styles.madeBy}>
-              Made In India With ❤️ By ComData Innovation
-            </Text>
+            <Text style={styles.madeBy}>Made In India With ❤️ By ComData Innovation</Text>
           </View>
 
           {/* Login Card */}
           <View style={styles.card}>
             <View style={styles.iconCircle}>
-              <Text style={styles.loginIcon}>➔]</Text>
+              <Text style={styles.loginIcon}>➔</Text>
             </View>
 
             <Text style={styles.welcomeTitle}>Welcome Back</Text>
-            <Text style={styles.welcomeSubtitle}>
-              Sign in to your account to continue
-            </Text>
+            <Text style={styles.welcomeSubtitle}>Sign in as {selectedRole.label} to continue</Text>
 
             {/* Role Picker */}
             <View style={styles.formGroup}>
               <Text style={styles.label}>Select Your Role</Text>
               <TouchableOpacity
                 activeOpacity={0.8}
-                style={[
-                  styles.inputRounded,
-                  showDropdown && styles.inputActive,
-                ]}
+                style={[styles.inputRounded, showDropdown && styles.inputActive]}
                 onPress={() => setShowDropdown(!showDropdown)}
               >
-                <View style={styles.row}>
-                  <Text style={styles.roleIcon}>
-                    {roles.find((r) => r.label === selectedRole)?.icon}
-                  </Text>
-                  <Text style={styles.inputText}>{selectedRole}</Text>
+                <View style={styles.roleSelectionRow}>
+                  <Text style={styles.roleIcon}>{selectedRole.icon}</Text>
+                  <Text style={styles.inputText}>{selectedRole.label}</Text>
                 </View>
                 <Text style={styles.arrowIcon}>{showDropdown ? "▲" : "▼"}</Text>
               </TouchableOpacity>
@@ -144,30 +138,29 @@ export default function LoginScreen() {
                 <View style={styles.dropdownList}>
                   {roles.map((item) => (
                     <TouchableOpacity
-                      key={item.label}
+                      key={item.value}
                       style={[
                         styles.roleItem,
-                        selectedRole === item.label && styles.roleItemSelected,
+                        selectedRole.value === item.value && styles.roleItemSelected,
                       ]}
                       onPress={() => {
-                        setSelectedRole(item.label);
+                        setSelectedRole(item);
                         setShowDropdown(false);
                       }}
                     >
-                      <View style={styles.row}>
-                        {selectedRole === item.label && (
+                      <View style={styles.roleItemContent}>
+                        <View style={styles.roleLeftSection}>
+                           <Text style={styles.roleIconSmall}>{item.icon}</Text>
+                           <Text style={[
+                             styles.roleItemText, 
+                             selectedRole.value === item.value && styles.roleTextActive
+                           ]}>
+                             {item.label}
+                           </Text>
+                        </View>
+                        {selectedRole.value === item.value && (
                           <Text style={styles.checkMark}>✓</Text>
                         )}
-                        <Text style={styles.roleIconSmall}>{item.icon}</Text>
-                        <Text
-                          style={[
-                            styles.roleItemText,
-                            selectedRole === item.label &&
-                              styles.roleTextActive,
-                          ]}
-                        >
-                          {item.label}
-                        </Text>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -175,7 +168,7 @@ export default function LoginScreen() {
               )}
             </View>
 
-            {/* Email Input */}
+            {/* Email */}
             <View style={styles.formGroup}>
               <Text style={styles.label}>Email Address</Text>
               <TextInput
@@ -189,7 +182,7 @@ export default function LoginScreen() {
               />
             </View>
 
-            {/* Password Input */}
+            {/* Password */}
             <View style={styles.formGroup}>
               <Text style={styles.label}>Password</Text>
               <View style={[styles.inputRounded, styles.passwordRow]}>
@@ -201,12 +194,8 @@ export default function LoginScreen() {
                   onChangeText={setPassword}
                   secureTextEntry={!isPasswordVisible}
                 />
-                <TouchableOpacity
-                  onPress={() => setIsPasswordVisible(!isPasswordVisible)}
-                >
-                  <Text style={styles.eyeIcon}>
-                    {isPasswordVisible ? "🙈" : "👁️"}
-                  </Text>
+                <TouchableOpacity onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
+                  <Text style={styles.eyeIcon}>{isPasswordVisible ? "🙈" : "👁️"}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -228,10 +217,7 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* Footer */}
-          <Text style={styles.footerText}>
-            © 2026 Admin Portal. All Rights Reserved.
-          </Text>
+          <Text style={styles.footerText}>© 2026 Admin Portal. All Rights Reserved.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -239,78 +225,30 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: theme.spacing.xl,
-  },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: theme.colors.white,
-    letterSpacing: 0.5,
-  },
-  madeBy: {
-    fontSize: 11,
-    color: theme.colors.white,
-    opacity: 0.85,
-    marginTop: 6,
-  },
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  scrollContent: { flexGrow: 1, alignItems: "center", paddingVertical: 50 },
+  header: { alignItems: "center", marginBottom: theme.spacing.xl },
+  appTitle: { fontSize: 22, fontWeight: "800", color: theme.colors.white },
+  madeBy: { fontSize: 11, color: theme.colors.white, opacity: 0.85, marginTop: 6 },
   card: {
-    width: width * 0.86,
+    width: width * 0.88,
     backgroundColor: theme.colors.surface,
     borderRadius: 24,
     padding: 24,
+    elevation: 8,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowRadius: 10,
+    minHeight: 480, 
   },
-  iconCircle: {
-    width: 50,
-    height: 50,
-    backgroundColor: "#F0F7FF",
-    borderRadius: 25,
-    alignSelf: "center",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
-  },
+  iconCircle: { width: 50, height: 50, backgroundColor: "#F0F7FF", borderRadius: 25, alignSelf: "center", justifyContent: "center", alignItems: "center", marginBottom: 10 },
   loginIcon: { fontSize: 22, color: theme.colors.primary },
-  welcomeTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: theme.colors.text,
-    textAlign: "center",
-  },
-  welcomeSubtitle: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    textAlign: "center",
-    marginBottom: 24,
-  },
-  formGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: theme.colors.text,
-    marginBottom: 6,
-    marginLeft: 4,
-  },
+  welcomeTitle: { fontSize: 20, fontWeight: "bold", color: theme.colors.text, textAlign: "center" },
+  welcomeSubtitle: { fontSize: 12, color: theme.colors.textSecondary, textAlign: "center", marginBottom: 24 },
+  formGroup: { marginBottom: 16, width: '100%' },
+  label: { fontSize: 12, fontWeight: "700", color: theme.colors.text, marginBottom: 6, marginLeft: 4 },
   inputRounded: {
-    height: 46,
+    height: 48,
     backgroundColor: theme.colors.inputBg,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -320,83 +258,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  inputActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: "#FFFFFF",
-  },
-  flexInput: {
-    flex: 1,
-    height: "100%",
-    fontSize: 14,
-    color: theme.colors.text,
-  },
-  passwordRow: {
-    justifyContent: "flex-start",
-  },
-  row: { flexDirection: "row", alignItems: "center" },
+  inputActive: { borderColor: theme.colors.primary, backgroundColor: "#FFFFFF" },
+  roleSelectionRow: { flexDirection: 'row', alignItems: 'center' },
   roleIcon: { fontSize: 16, marginRight: 10 },
   inputText: { fontSize: 14, color: theme.colors.text },
   arrowIcon: { fontSize: 10, color: theme.colors.textSecondary },
-
+  
   dropdownList: {
     backgroundColor: "#FFF",
     borderRadius: 15,
-    marginTop: 6,
+    marginTop: 5,
     borderWidth: 1,
     borderColor: theme.colors.border,
     overflow: "hidden",
     elevation: 5,
-    zIndex: 1000,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  roleItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F1F1",
-  },
+  roleItem: { paddingVertical: 12, paddingHorizontal: 16 },
   roleItemSelected: { backgroundColor: "#EAF6FF" },
-  checkMark: {
-    color: theme.colors.primary,
-    marginRight: 8,
-    fontWeight: "bold",
-  },
-  roleIconSmall: { fontSize: 14, marginRight: 10 },
+  roleItemContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  roleLeftSection: { flexDirection: 'row', alignItems: 'center' },
+  roleIconSmall: { fontSize: 16, marginRight: 12, width: 20 },
   roleItemText: { fontSize: 14, color: theme.colors.textSecondary },
   roleTextActive: { color: theme.colors.primary, fontWeight: "700" },
+  checkMark: { color: theme.colors.primary, fontWeight: "bold" },
 
+  flexInput: { flex: 1, height: "100%", fontSize: 14, color: theme.colors.text },
+  passwordRow: { justifyContent: "flex-start" },
   eyeIcon: { fontSize: 16, paddingLeft: 10 },
-
-  buttonContainer: {
-    alignItems: "center",
-    marginTop: 10,
-  },
+  buttonContainer: { alignItems: "center", marginTop: 20 },
   smallButton: {
     backgroundColor: theme.colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 40,
+    height: 50,
+    width: '100%',
     borderRadius: theme.radius.round,
-    shadowColor: theme.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-    minWidth: 150,
     justifyContent: 'center',
     alignItems: 'center'
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: "#FFF",
-    fontSize: 15,
-    fontWeight: "bold",
-  },
-  footerText: {
-    marginTop: 30,
-    fontSize: 11,
-    color: "#FFF",
-    opacity: 0.7,
-    textAlign: 'center'
-  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
+  footerText: { marginTop: 30, fontSize: 11, color: "#FFF", opacity: 0.7, textAlign: 'center' },
 });
